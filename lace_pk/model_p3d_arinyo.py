@@ -171,7 +171,7 @@ class ArinyoModel(object):
 
         return p1d
 
-    def P1D_hMpc(
+    def P1D_Mpc(
         self, z, k_par, k_perp_min=0.001, k_perp_max=100, n_k_perp=99, parameters={}
     ):
         """Returns P1D for specified values of k_par, with the option to
