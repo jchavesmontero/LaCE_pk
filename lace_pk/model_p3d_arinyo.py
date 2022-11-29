@@ -180,8 +180,8 @@ class ArinyoModel(object):
         # get function to be integrated
         # it is equivalent of the inner loop of _P1D_lnkperp
         k_perp = np.exp(ln_k_perp)
-        k = np.sqrt(k1_Mpc[np.newaxis, :] ** 2 + k_perp[:, np.newaxis] ** 2)
-        mu = k1_Mpc[np.newaxis, :] / k
+        k = np.sqrt(kpars[np.newaxis, :] ** 2 + k_perp[:, np.newaxis] ** 2)
+        mu = kpars[np.newaxis, :] / k
         k = k.swapaxes(0, 1)
         mu = mu.swapaxes(0, 1)
 
@@ -207,6 +207,6 @@ class ArinyoModel(object):
 
         ln_k_perp = np.linspace(np.log(k_perp_min), np.log(k_perp_max), n_k_perp)
 
-        p1d = self._P1D_lnkperp(z, ln_k_perp, k_par, parameters)
+        p1d = self._P1D_lnkperp_fast(z, ln_k_perp, k_par, parameters)
 
         return p1d
