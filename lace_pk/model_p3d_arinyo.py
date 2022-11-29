@@ -1,6 +1,7 @@
 import numpy as np
 import scipy
 from lace.cosmo import camb_cosmo
+from scipy.integrate import simpson
 
 
 def get_linP_interp(cosmo, zs, camb_results):
@@ -163,11 +164,33 @@ class ArinyoModel(object):
         # for each value of k_par, integrate P3D over ln(k_perp) to get P1D
         p1d = np.empty_like(kpars)
         for i in range(kpars.size):
-            kp = kpars[i]
             # get function to be integrated
-            p3d_fix_k_par = self._P3D_kperp2(z, ln_k_perp, kp, parameters)
+            p3d_fix_k_par = self._P3D_kperp2(z, ln_k_perp, kpars[i], parameters)
             # perform numerical integration
             p1d[i] = simpson(p3d_fix_k_par, ln_k_perp, dx=dlnk)
+
+        return p1d
+
+    def _P1D_lnkperp_fast(self, z, ln_k_perp, kpars, parameters={}):
+        """Compute P1D by integrating P3D in terms of ln(k_perp)"""
+
+        # get interval for integration
+        dlnk = ln_k_perp[1] - ln_k_perp[0]
+
+        # get function to be integrated
+        # it is equivalent of the inner loop of _P1D_lnkperp
+        k_perp = np.exp(ln_k_perp)
+        k = np.sqrt(k1_Mpc[np.newaxis, :] ** 2 + k_perp[:, np.newaxis] ** 2)
+        mu = k1_Mpc[np.newaxis, :] / k
+        k = k.swapaxes(0, 1)
+        mu = mu.swapaxes(0, 1)
+
+        fact = (1 / (2 * np.pi)) * k_perp[:, np.newaxis] ** 2
+        fact = fact.swapaxes(0, 1)
+        p3d_fix_k_par = self.P3D_Mpc(z, k, mu, parameters) * fact
+
+        # perform numerical integration
+        p1d = simpson(p3d_fix_k_par, ln_k_perp, dx=dlnk, axis=1)
 
         return p1d
 
