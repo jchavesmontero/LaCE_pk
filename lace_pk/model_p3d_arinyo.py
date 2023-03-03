@@ -4,13 +4,25 @@ from lace.cosmo import camb_cosmo
 from scipy.integrate import simpson
 
 
-def get_linP_interp(cosmo, zs, camb_results):
+def get_nmod(k, dk, Lbox):
+    Vs = 4 * np.pi**2 * k**2 * dk * (1 + 1 / 12 * (dk / k) ** 2)
+    kf = 2 * np.pi / Lbox
+    Vk = kf**3
+    Nk = Vs / Vk
+    return Nk
+
+
+def get_linP_interp(cosmo, zs, camb_results, camb_kmax_Mpc=30):
     """Ask CAMB for an interpolator of linear power."""
 
     if camb_results is None:
-        camb_results = camb_cosmo.get_camb_results(cosmo, zs=zs)
+        camb_results = camb_cosmo.get_camb_results(
+            cosmo, zs=zs, camb_kmax_Mpc=camb_kmax_Mpc
+        )
 
     # get interpolator from CAMB
+    # meaning of var1 and var2 here
+    # https://camb.readthedocs.io/en/latest/transfer_variables.html#transfer-variables
     linP_interp = camb_results.get_matter_power_interpolator(
         nonlinear=False,
         var1=8,
@@ -18,7 +30,6 @@ def get_linP_interp(cosmo, zs, camb_results):
         hubble_units=False,
         k_hunit=False,
         log_interp=True,
-        extrap_kmax=100.0,
     )
 
     return linP_interp
@@ -40,6 +51,7 @@ class ArinyoModel(object):
         default_d1_av=0.29,
         default_d1_bv=1.55,
         default_d1_kp=10.5,
+        camb_kmax_Mpc=100.0,
     ):
         """Set up flux power spectrum model.
         Inputs:
@@ -53,7 +65,9 @@ class ArinyoModel(object):
          - default_d1_kp: units 1/Mpc"""
 
         # get a linear power interpolator
-        self.linP_interp = get_linP_interp(cosmo, zs, camb_results)
+        self.linP_interp = get_linP_interp(
+            cosmo, zs, camb_results, camb_kmax_Mpc=camb_kmax_Mpc
+        )
 
         # store bias parameters
         self.default_bias = default_bias
@@ -195,7 +209,13 @@ class ArinyoModel(object):
         return p1d
 
     def P1D_Mpc(
-        self, z, k_par, k_perp_min=0.001, k_perp_max=100, n_k_perp=99, parameters={}
+        self,
+        z,
+        k_par,
+        k_perp_min=0.001,
+        k_perp_max=100,
+        n_k_perp=99,
+        parameters={},
     ):
         """Returns P1D for specified values of k_par, with the option to
         specify values of k_perp to be integrated over
@@ -210,3 +230,64 @@ class ArinyoModel(object):
         p1d = self._P1D_lnkperp_fast(z, ln_k_perp, k_par, parameters)
 
         return p1d
+
+    def rel_err_P1d(
+        self,
+        z,
+        k_par,
+        Lbox,
+        res_los,
+        nskewers,
+        n_k_perp=1000,
+        parameters={},
+    ):
+        n_k_par = k_par.shape[0]
+
+        # array of k_perp that fit within simulation box (important!)
+        nk_max = int(Lbox / res_los / 2)
+        k_perp_min = 2 * np.pi / Lbox
+        k_perp_max = k_perp_min * nk_max
+        ln_k_perp = np.linspace(np.log(k_perp_min), np.log(k_perp_max), n_k_perp)
+        k_perp = np.exp(ln_k_perp)
+
+        # get p3d and number of modes as a function of k_par and k_per
+        p3d = np.zeros((n_k_par, n_k_perp))
+        nmod = np.zeros((n_k_par, n_k_perp))
+        for ii in range(n_k_perp):
+            k = np.sqrt(k_par**2 + k_perp[ii] ** 2)
+            dk = k[1:] - k[:-1]
+            dk = np.concatenate([dk, np.atleast_1d(dk[-1])])
+            mu = k_par / k
+            p3d[:, ii] = self.P3D_Mpc(z, k, mu)
+            nmod[:, ii] = get_nmod(k, dk, Lbox)
+
+        ## estimate error from cosmic variance (new, JCM)
+
+        # sigma_p3d = np.sqrt(2/Nmodes) * P
+        sigma_p3d = np.sqrt(2 / nmod) * p3d
+
+        # p1d = 1/(2*pi) int_kmin^kmax dkper kper p3d
+        # I am not sure whether should be pi or 2*pi, depends on the convention?
+        # we use 2*pi above so let's go with that
+        p1d = self.P1D_Mpc(z, k_par)
+
+        # in practise, we only need to evaluate the derivatives and error at kper=kmax
+        # dp1d/dp3d = dP1d/dkpar (dkpar/dp3d)_kmin^kmax
+        # dp1d_dkpar = (1/pi) int_kmin^kmax dkper kper dp3d/dkpar
+        dp3d_dkpar = np.gradient(p3d, k_par, axis=0)
+        dp1d_dkpar = simpson(dp3d_dkpar * k_perp, k_perp, axis=1) / (2 * np.pi)
+        dp1d_dp3d = dp1d_dkpar / dp3d_dkpar[:, -1]
+
+        # err_p1d = |dp1d/dp3d| * sigma_p3d_kmin^kmax
+        sigma_p1d = np.abs(dp1d_dp3d) * sigma_p3d[:, -1]
+
+        # err_p1d__p1d
+        sigma_p1d__p1d = sigma_p1d / p1d
+
+        ## estimate error from sampling variance (Zhan et al. 2005)
+        sampling_sigma__p1d = (k_par[:] * 0 + 1) / np.sqrt(nskewers)
+
+        ## combine both
+        sigma_both = np.sqrt(sigma_p1d__p1d**2 + sampling_sigma__p1d**2)
+
+        return sigma_both, sigma_p1d__p1d, sampling_sigma__p1d
