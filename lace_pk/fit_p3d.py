@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 import emcee
 from pyDOE2 import lhs
+import copy
 
 
 class FitPk(object):
@@ -13,92 +14,71 @@ class FitPk(object):
         data,
         model,
         fit_type="p3d",
-        fit_k_Mpc_3d_max=10,
-        noise_floor_3d=0.05,
-        min_counts_3d=0,
-        err_p3d=None,
-        fit_k_Mpc_1d_max=10,
-        noise_floor_1d=0.05,
-        err_p1d=None,
+        k3d_max=10,
+        k1d_max=10,
+        noise_3d=0.05,
+        noise_1d=0.05,
         priors=None,
-        smooth_mu=True,
     ):
         """Setup P3D flux power model and measurement.
         Inputs:
          - data: measured P3D
          - model: theoretical model for 3D flux power
-         - fit_k_Mpc_3d_max: fit only modes with k_Mpc_3d < fit_k_Mpc_3d_max
+         - k3d_max: fit only modes with k3d < k3d_max
          - noise_floor: down-weight high-k modes in fit"""
 
         # store data and model
-        self.data = data
+        self.data = copy.deepcopy(data)
         self.model = model
-        self.noise_floor_3d = noise_floor_3d
         self.priors = priors
-        self.smooth_mu = smooth_mu
+        self.units = self.data["units"]
 
         # p3d or both
         self.fit_type = fit_type
 
-        # identify bins included in fit
-        k_Mpc_3d = self.data["k_Mpc_3d"]
-
-        # first, consider only bins that have been measured precisely (counts>min_counts)
-        # and bins that have k_Mpc < fit_k_Mpc_max
-        good_3d = (self.data["counts_3d"] > min_counts_3d) & (
-            self.data["k_Mpc_3d"] < fit_k_Mpc_3d_max
-        )
-        self.fit_bins_3d = np.array(good_3d)
-
         # relative errors with noise floor
-        if err_p3d is not None:
-            self.estimate_err_pkmu(
-                err_p3d, kmax=fit_k_Mpc_3d_max, noise_floor_3d=noise_floor_3d
-            )
-            self.err_p3d[~good_3d] = np.inf
-        else:
-            rel_err = np.empty_like(self.data["counts_3d"])
-            rel_err[good_3d] = (
-                np.sqrt(2.0 / self.data["counts_3d"][good_3d]) + noise_floor_3d
-            )
-            self.err_p3d = rel_err * self.data["p3d_Mpc"]
-            self.err_p3d[~good_3d] = np.inf
-
-        if self.smooth_mu:
-            self.data["smooth_mu"] = np.zeros_like(self.data["mu"])
-            for ii in range(self.data["mu"].shape[1]):
-                self.data["smooth_mu"][:, ii] = np.nanmedian(self.data["mu"][:, ii])
+        self.data["std_p3d_sta"] = self.data["std_p3d"] * 1
+        self.data["std_p3d_sys"] = noise_3d * self.data["p3d"]
+        self.data["std_p3d"] = np.sqrt(
+            self.data["std_p3d_sta"] ** 2 + self.data["std_p3d_sys"] ** 2
+        )
+        # k_Mpc < fit_k_Mpc_max
+        self.ind_fit3d = (
+            np.isfinite(self.data["std_p3d"])
+            & (self.data["std_p3d"] != 0)
+            & np.isfinite(self.data["p3d"])
+            & (self.data["k3d"] < k3d_max)
+        )
+        self.data["std_p3d"][~self.ind_fit3d] = np.inf
 
         # same for p1d
         if fit_type == "both":
-            k_Mpc_1d = self.data["k_Mpc_1d"]
-            good_1d = k_Mpc_1d < fit_k_Mpc_1d_max
-            self.fit_bins_1d = np.array(good_1d)
-
             # relative errors with noise floor
-            if err_p1d is not None:
-                self.estimate_err_p1d(
-                    err_p1d, kmax=fit_k_Mpc_1d_max, noise_floor_1d=noise_floor_1d
-                )
-                self.err_p1d[~good_1d] = np.inf
-            else:
-                rel_err = np.empty_like(self.data["k_Mpc_1d"])
-                rel_err[good_1d] = noise_floor_1d
-                rel_err[~good_1d] = np.inf
-                self.err_p1d = rel_err * self.data["p1d_Mpc"]
+            self.data["std_p1d_sta"] = self.data["std_p1d"] * 1
+            self.data["std_p1d_sys"] = noise_1d * self.data["p1d"]
+            self.data["std_p1d"] = np.sqrt(
+                self.data["std_p1d_sta"] ** 2 + self.data["std_p1d_sys"] ** 2
+            )
+            # k_Mpc < fit_k_Mpc_max
+            self.ind_fit1d = (
+                np.isfinite(self.data["std_p1d"])
+                & (self.data["std_p1d"] != 0)
+                & np.isfinite(self.data["p1d"])
+                & (self.data["k1d"] < k1d_max)
+            )
+            self.data["std_p1d"][~self.ind_fit1d] = np.inf
 
     def get_model_3d(self, parameters={}):
         """Model for the 3D flux power spectrum"""
 
         # identify (k,mu) for bins included in fit
-        k = self.data["k_Mpc_3d"][self.fit_bins_3d]
-        z = self.data["z"]
-        if self.smooth_mu:
-            mu = self.data["smooth_mu"][self.fit_bins_3d]
-        else:
-            mu = self.data["mu"][self.fit_bins_3d]
-
-        return self.model.P3D_Mpc(z, k, mu, parameters)
+        z = self.data["z"][0]
+        k = self.data["k3d"][self.ind_fit3d]
+        mu = self.data["mu3d"][self.ind_fit3d]
+        p3d = self.model.P3D_Mpc(z, k, mu, parameters)
+        if self.units == "N":
+            p3d *= k**3 / 2 / np.pi**2
+        return p3d
 
     def get_model_1d(
         self,
@@ -108,59 +88,18 @@ class FitPk(object):
         n_k_perp=40,
     ):
         """Model for the 1D flux power spectrum"""
-        res = self.model.P1D_Mpc(
-            self.data["z"],
-            self.data["k_Mpc_1d"][self.fit_bins_1d],
+        k = self.data["k1d"][self.ind_fit1d]
+        p1d = self.model.P1D_Mpc(
+            self.data["z"][0],
+            k,
             parameters=parameters,
             k_perp_min=k_perp_min,
             k_perp_max=k_perp_max,
             n_k_perp=n_k_perp,
         )
-        return res
-
-    def estimate_err_pkmu(self, sigma_pkmu, order=2, kmax=10, noise_floor_3d=0.05):
-        """Returns P3D(k, mu) errors estimated from simulation
-        - order: polinomial fit order"""
-
-        self.err_p3d = np.zeros_like(self.data["p3d_Mpc"])
-        self.fit_epk3d = np.zeros((self.data["k_Mpc_3d"].shape[1], order + 1))
-        for ii in range(self.data["k_Mpc_3d"].shape[1]):
-            _ = np.isfinite(self.data["k_Mpc_3d"][:, ii]) & (
-                self.data["k_Mpc_3d"][:, ii] < kmax
-            )
-            logk = np.log10(self.data["k_Mpc_3d"][_, ii])
-            self.fit_epk3d[ii, :] = np.polyfit(logk, np.log10(sigma_pkmu[_, ii]), order)
-            pfit = np.poly1d(self.fit_epk3d[ii, :])
-
-            _ = np.isfinite(self.data["k_Mpc_3d"][:, ii])
-            logk = np.log10(self.data["k_Mpc_3d"][_, ii])
-            noise_floor = noise_floor_3d * self.data["p3d_Mpc"][_, ii]
-            self.err_p3d[_, ii] = 10 ** pfit(logk) + noise_floor
-
-    def estimate_err_p1d(self, sigma_pk1d, order=3, kmax=40, noise_floor_1d=0.05):
-        """Returns P1D(k, mu) errors estimated from simulation
-        - order: polinomial fit order"""
-
-        if "k_Mpc_1d" in self.data:
-            pass
-        else:
-            return "No k_Mpc_1d key in data"
-
-        self.err_p1d = np.zeros_like(self.data["p1d_Mpc"])
-        _ = (
-            (self.data["k_Mpc_1d"] > 0)
-            & (self.data["k_Mpc_1d"] < kmax)
-            & (sigma_pk1d != 0)
-        )
-        logk = np.log10(self.data["k_Mpc_1d"][_])
-        self.fit_epk1d = np.polyfit(logk, np.log10(sigma_pk1d[_]), order)
-        pfit = np.poly1d(self.fit_epk1d)
-
-        _ = self.data["k_Mpc_1d"] > 0
-        logk = np.log10(self.data["k_Mpc_1d"][_])
-        noise_floor = noise_floor_1d * self.data["p1d_Mpc"][_]
-        self.err_p1d[_] = 10 ** pfit(logk) + noise_floor
-        self.err_p1d[0] = self.err_p1d[1] * 2
+        if self.units == "N":
+            p1d *= k / np.pi
+        return p1d
 
     def get_chi2(self, parameters={}, return_npoints=False):
         """Compute chi squared for a particular P3D model.
@@ -168,29 +107,31 @@ class FitPk(object):
         - return_points: return number of data points used"""
 
         # get P3D measurement for bins included in fit
-        data = self.data["p3d_Mpc"][self.fit_bins_3d]
+        data_p3d = self.data["p3d"][self.ind_fit3d]
 
         # compute model for these wavenumbers
-        theory = self.get_model_3d(parameters=parameters)
+        th_p3d = self.get_model_3d(parameters=parameters)
 
         # get absolute error
-        error = self.err_p3d[self.fit_bins_3d]
+        err_p3d = self.data["std_p3d"][self.ind_fit3d]
 
         # compute chi2
-        chi2 = np.sum(((data - theory) / error) ** 2) / np.sum(self.fit_bins_3d)
+        chi2 = np.sum(((data_p3d - th_p3d) / err_p3d) ** 2) / np.sum(self.ind_fit3d)
 
         if self.fit_type == "both":
             # get P1D measurement for bins included in fit
-            data = self.data["p1d_Mpc"][self.fit_bins_1d]
+            data_p1d = self.data["p1d"][self.ind_fit1d]
 
             # compute model for these wavenumbers
-            theory = self.get_model_1d(parameters=parameters)
+            th_p1d = self.get_model_1d(parameters=parameters)
 
             # compute absolute error
-            error = self.err_p1d[self.fit_bins_1d]
+            err_p1d = self.data["std_p1d"][self.ind_fit1d]
 
             # compute chi2
-            chi2_p1d = np.sum(((data - theory) / error) ** 2) / np.sum(self.fit_bins_1d)
+            chi2_p1d = np.sum(((data_p1d - th_p1d) / err_p1d) ** 2) / np.sum(
+                self.ind_fit1d
+            )
             chi2 += chi2_p1d
 
         if return_npoints:
@@ -327,6 +268,44 @@ class FitPk(object):
 
         return lnprob, chain
 
+    def old_smooth_err_pkmu(self, kmax=10, order=2):
+        """Returns P3D(k, mu) errors estimated from simulation
+        - order: polinomial fit order"""
+
+        self.data["fcov3d"] = np.diag(self.data["cov3d"]).reshape()
+        fit_epk3d = np.zeros((self.data["k3d"].shape[1], order + 1))
+        for ii in range(self.data["k3d"].shape[1]):
+            _ = np.isfinite(self.data["k3d"][:, ii]) & (self.data["k3d"][:, ii] < kmax)
+            logk = np.log10(self.data["k3d"][_, ii])
+            self.fit_epk3d[ii, :] = np.polyfit(logk, np.log10(sigma_pkmu[_, ii]), order)
+            pfit = np.poly1d(self.fit_epk3d[ii, :])
+
+            _ = np.isfinite(self.data["k3d"][:, ii])
+            logk = np.log10(self.data["k3d"][_, ii])
+            noise_floor = noise_3d * self.data["p3d"][_, ii]
+            self.err_p3d[_, ii] = 10 ** pfit(logk) + noise_floor
+
+    def old_estimate_err_p1d(self, sigma_pk1d, order=3, kmax=40, noise_1d=0.05):
+        """Returns P1D(k, mu) errors estimated from simulation
+        - order: polinomial fit order"""
+
+        if "k1d" in self.data:
+            pass
+        else:
+            return "No k_Mpc_1d key in data"
+
+        self.err_p1d = np.zeros_like(self.data["p1d"])
+        _ = (self.data["k1d"] > 0) & (self.data["k1d"] < kmax) & (sigma_pk1d != 0)
+        logk = np.log10(self.data["k1d"][_])
+        self.fit_epk1d = np.polyfit(logk, np.log10(sigma_pk1d[_]), order)
+        pfit = np.poly1d(self.fit_epk1d)
+
+        _ = self.data["k1d"] > 0
+        logk = np.log10(self.data["k1d"][_])
+        noise_floor = noise_1d * self.data["p1d"][_]
+        self.err_p1d[_] = 10 ** pfit(logk) + noise_floor
+        self.err_p1d[0] = self.err_p1d[1] * 2
+
 
 def purge_chains(ln_prop_chains, nsplit=5, abs_diff=5, minval=-1000):
     """Purge emcee chains that have not converged"""
@@ -365,7 +344,6 @@ def init_chains(
     attraction=1,
     min_attraction=0.05,
 ):
-
     parameter_names = list(parameters.keys())
     parameter_values = np.array(list(parameters.values()))
     nparams = len(parameter_names)
