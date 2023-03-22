@@ -1,5 +1,5 @@
 import numpy as np
-import sys
+import sys, os
 from pyDOE2 import lhs
 
 from lace.emulator import pd_archive
@@ -72,7 +72,7 @@ def get_default_params():
         "d1_q2": [0, 5],
     }
 
-    return parameters, priors_q, parameters_q2, priors_q2
+    return parameters_q, priors_q, parameters_q2, priors_q2
 
 
 def get_flag_out(
@@ -98,7 +98,7 @@ def get_flag_out(
     return flag
 
 
-def get_input_data(data):
+def get_input_data(data, err_p3d, err_p1d):
     data_dict = {}
     data_dict["units"] = "N"
     data_dict["z"] = np.atleast_1d(data["z"])
@@ -116,6 +116,8 @@ def get_input_data(data):
     data_dict["std_p1d"] = std_p1d
 
     # read cosmology
+    assert "LACE_REPO" in os.environ, "export LACE_REPO"
+    folder = os.environ["LACE_REPO"] + "/lace/emulator/sim_suites/post_768/"
     genic_fname = (
         folder + "sim_pair_" + str(data["ind_sim"]) + "/sim_plus/paramfile.genic"
     )
@@ -147,12 +149,12 @@ def main():
     print(
         "Analyzing simulation "
         + str(ind_sim)
-        + "out of"
+        + " out of "
         + str(len(archive.data_av_all))
     )
 
     # read errors (from compute__Pflux_variance.ipynb)
-    folder_errors = ""
+    folder_errors = "../data/"
     err_p1d = np.load(folder_errors + "p1d_4_fit.npz")
     err_p3d = np.load(folder_errors + "p3d_4_fit.npz")
 
@@ -179,7 +181,9 @@ def main():
     out_file = get_flag_out(ind_sim, kmax_3d, noise_3d, kmax_1d, noise_1d)
 
     # get input data
-    data_dict, model, linp = get_input_data(archive.data_av_all[ind_sim])
+    data_dict, model, linp = get_input_data(
+        archive.data_av_all[ind_sim], err_p3d, err_p1d
+    )
 
     # set fitting model
     fit = fit_p3d.FitPk(
@@ -229,6 +233,8 @@ def main():
         chia = chi2
         best_fit_params = _best_fit_params.copy()
     # the output is chia and best_fit_params
+    print("Initial chi2", chia)
+    print("and best_params", best_fit_params)
 
     # using best_fit_params as input, we run the chain
     lnprob, chain = fit.explore_likelihood(
