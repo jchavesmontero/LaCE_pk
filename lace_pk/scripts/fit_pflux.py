@@ -11,17 +11,6 @@ from lace.setup_simulations import read_genic
 from lace_pk import model_p3d_arinyo, fit_p3d
 
 
-def ls_level(folder, nlevels):
-    for ii in range(nlevels):
-        folder = os.path.dirname(folder)
-    folder += "/"
-    return folder
-
-
-path_program = ls_level(os.getcwd(), 1)
-print(path_program)
-
-
 def get_std_kp1d(ind_sim, ind_tau, ind_z, err_p1d):
     _sim = np.argwhere(err_p1d["u_ind_sim"] == ind_sim)[0, 0]
     _tau = np.argwhere(err_p1d["u_ind_tau"] == ind_tau)[0, 0]
@@ -168,9 +157,10 @@ def main():
     )
 
     # read errors (from compute__Pflux_variance.ipynb)
-    folder_errors = path_program + "data/"
-    err_p1d = np.load(folder_errors + "p1d_4_fit.npz")
-    err_p3d = np.load(folder_errors + "p3d_4_fit.npz")
+    assert "LACE_PK_REPO" in os.environ, "export LACE_PK_REPO"
+    folder = os.environ["LACE_PK_REPO"] + "/lace_pk/data/"
+    err_p1d = np.load(folder + "p1d_4_fit.npz")
+    err_p3d = np.load(folder + "p3d_4_fit.npz")
 
     # fit options
     kmax_3d = 5
