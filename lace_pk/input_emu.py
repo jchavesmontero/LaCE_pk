@@ -13,10 +13,10 @@ def get_params_4_emu(data, n_std=1):
     return means, stds, corrs
 
 
-def get_input_emulator(folder, ntot, file_out):
+def get_input_emulator(folder_input, ntot, file_out):
     for ii in range(ntot):
         file = (
-            folder
+            folder_input
             + "temp_data/fits/fit_indsim_"
             + str(ii)
             + "_kmax3d_5_noise3d_0.075_kmax1d_5_noise1d_0.01.npz"
