@@ -156,8 +156,10 @@ def main():
     )
 
     # read errors (from compute__Pflux_variance.ipynb)
+    # the following two lines do not work when submitting HTCondor job
     # assert "LACE_PK_REPO" in os.environ, "export LACE_PK_REPO"
     # folder = os.environ["LACE_PK_REPO"] + "/lace_pk/data/"
+    # I need to specify the target directory by hand
     folder = "/data/desi/scratch/jchavesm/LaCE_pk/lace_pk/data/"
     err_p1d = np.load(folder + "p1d_4_fit.npz")
     err_p3d = np.load(folder + "p3d_4_fit.npz")
