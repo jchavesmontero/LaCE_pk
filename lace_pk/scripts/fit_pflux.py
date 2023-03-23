@@ -2,10 +2,24 @@ import numpy as np
 import sys, os
 from pyDOE2 import lhs
 
+# mamba install -c conda-forge pydoe2
+# mamba install -c conda-forge emcee
+
 from lace.emulator import pd_archive
 from lace.cosmo import camb_cosmo
 from lace.setup_simulations import read_genic
 from lace_pk import model_p3d_arinyo, fit_p3d
+
+
+def ls_level(folder, nlevels):
+    for ii in range(nlevels):
+        folder = os.path.dirname(folder)
+    folder += "/"
+    return folder
+
+
+path_program = ls_level(os.getcwd(), 1)
+print(path_program)
 
 
 def get_std_kp1d(ind_sim, ind_tau, ind_z, err_p1d):
@@ -154,7 +168,7 @@ def main():
     )
 
     # read errors (from compute__Pflux_variance.ipynb)
-    folder_errors = "../data/"
+    folder_errors = path_program + "data/"
     err_p1d = np.load(folder_errors + "p1d_4_fit.npz")
     err_p3d = np.load(folder_errors + "p3d_4_fit.npz")
 
