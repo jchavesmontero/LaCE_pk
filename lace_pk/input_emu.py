@@ -20,7 +20,7 @@ def get_input_emulator(folder_input, ntot, file_out):
     for ii in range(ntot):
         file = (
             folder_input
-            + "temp_data/fits/fit_indsim_"
+            + "fit_indsim_"
             + str(ii)
             + "_kmax3d_5_noise3d_0.075_kmax1d_5_noise1d_0.01.npz"
         )
