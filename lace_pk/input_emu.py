@@ -30,7 +30,7 @@ def get_input_emulator(folder_input, ntot, file_out):
             bests = np.zeros((ntot, par_chain.shape[1]))
             means = np.zeros((ntot, par_chain.shape[1]))
             stds = np.zeros((ntot, par_chain.shape[1]))
-            ncorrs = (
+            ncorrs = int(
                 par_chain.shape[1] * (par_chain.shape[1] + 1) / 2 - par_chain.shape[1]
             )
             corrs = np.zeros((ntot, ncorrs))
