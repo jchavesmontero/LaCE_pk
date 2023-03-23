@@ -96,7 +96,6 @@ def get_flag_out(
         + str(kmax_1d)
         + "_noise1d_"
         + str(noise_1d)
-        + ".npy"
     )
     return flag
 
@@ -157,8 +156,9 @@ def main():
     )
 
     # read errors (from compute__Pflux_variance.ipynb)
-    assert "LACE_PK_REPO" in os.environ, "export LACE_PK_REPO"
-    folder = os.environ["LACE_PK_REPO"] + "/lace_pk/data/"
+    # assert "LACE_PK_REPO" in os.environ, "export LACE_PK_REPO"
+    # folder = os.environ["LACE_PK_REPO"] + "/lace_pk/data/"
+    folder = "/data/desi/scratch/jchavesm/LaCE_pk/lace_pk/data/"
     err_p1d = np.load(folder + "p1d_4_fit.npz")
     err_p3d = np.load(folder + "p3d_4_fit.npz")
 
